@@ -1,0 +1,6 @@
+# Lokale configuratie (tenant-specifiek, nooit committen)
+web/config.js
+# Gegenereerde manifests
+dist/
+node_modules/
+.DS_Store
