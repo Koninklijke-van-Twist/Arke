@@ -8,6 +8,7 @@
   var Core = window.ArkeCore;
   var cfg = Core.mergeConfig(window.ARKE_DEFAULTS, window.ARKE_CONFIG);
   var busy = false;
+  var itemChangedWhileBusy = false; // vastgezette taskpane: andere mail gekozen tijdens opslaan
   var foldersReady = {}; // per driveId: mappen deze sessie al gecontroleerd
 
   /** Zoekt de doel-drive op en zorgt dat de mappen bestaan. Geeft een runtime-config terug. */
@@ -100,8 +101,11 @@
   async function save() {
     if (busy) return;
     var item = currentItem();
-    if (!item) return;
+    if (!item || !item.internetMessageId) return;
+    // Leg de mail vast bij de klik; alles hieronder gebruikt alleen `item`/`messageId`.
+    var messageId = item.internetMessageId;
     busy = true;
+    itemChangedWhileBusy = false;
     $("save").disabled = true;
     show("info", "Bezig met opslaan&hellip;");
     progress(0.05);
@@ -120,7 +124,7 @@
           to: item.to,
           cc: item.cc,
           dateTimeCreated: item.dateTimeCreated,
-          internetMessageId: item.internetMessageId,
+          internetMessageId: messageId,
           conversationId: item.conversationId,
           attachments: item.attachments
         },
@@ -143,6 +147,13 @@
       }
       progress(0.25);
 
+      // Vastgezette taskpane: is er intussen een andere mail geselecteerd, dan niet de verkeerde opslaan.
+      var now = currentItem();
+      if (itemChangedWhileBusy || !now || now.internetMessageId !== messageId) {
+        var changed = new Error("Je hebt tijdens het opslaan een andere mail geopend. Er is niets opgeslagen; probeer het opnieuw.");
+        changed.code = "item_changed";
+        throw changed;
+      }
       var eml = Core.base64ToBytes(await getEmlBase64(item));
       progress(0.35);
 
@@ -180,12 +191,27 @@
       show("ok", "&#10003; Opgeslagen in SharePoint (" + esc(cfg.inboxFolder) + ")." + link);
     } catch (e) {
       console.error(e);
-      if (e && e.status === 409) show("warn", "Deze mail staat al in SharePoint.");
+      if (e && e.code === "item_changed") show("warn", esc(e.message));
+      else if (e && e.status === 409) show("warn", "Deze mail staat al in SharePoint.");
       else show("err", esc(Core.friendlyError(e)));
     } finally {
       busy = false;
       progress(null);
-      $("save").disabled = !supportsEml();
+      var switched = itemChangedWhileBusy || (currentItem() && currentItem().internetMessageId !== messageId);
+      itemChangedWhileBusy = false;
+      if (switched) {
+        // Kaart en knop bijwerken naar de nu geselecteerde mail; uitkomst van de vorige blijft zichtbaar.
+        var msgEl = $("message");
+        var kind = msgEl.className, html = msgEl.innerHTML, wasShown = !msgEl.hidden;
+        render();
+        if (wasShown && !/\binfo\b/.test(kind)) {
+          msgEl.className = kind;
+          msgEl.innerHTML = html + "<br><small>(Dit ging over de vorige mail.)</small>";
+          msgEl.hidden = false;
+        }
+      } else {
+        $("save").disabled = !supportsEml();
+      }
     }
   }
 
@@ -208,7 +234,8 @@
     // Vastgezette taskpane: bij wisselen van mail opnieuw tonen.
     if (Office.context.mailbox.addHandlerAsync) {
       Office.context.mailbox.addHandlerAsync(Office.EventType.ItemChanged, function () {
-        if (!busy) render();
+        if (busy) itemChangedWhileBusy = true;
+        else render();
       });
     }
     render();

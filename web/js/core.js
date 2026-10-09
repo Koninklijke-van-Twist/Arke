@@ -321,8 +321,8 @@
   /** Mappen (incl. tussenliggende) die moeten bestaan: ["_Inbox", "_Register"] of ["A", "A/_Inbox"]. */
   function foldersToEnsure(cfg) {
     var out = [];
-    [cfg.inboxFolder, cfg.registerFolder].forEach(function (f) {
-      var parts = String(f || "").split("/").filter(Boolean);
+    [folderValue(cfg.inboxFolder), folderValue(cfg.registerFolder)].forEach(function (f) {
+      var parts = f.split("/").filter(Boolean);
       for (var i = 1; i <= parts.length; i++) {
         var p = parts.slice(0, i).join("/");
         if (out.indexOf(p) < 0) out.push(p);
@@ -331,17 +331,33 @@
     return out;
   }
 
-  /** Combineert defaults met een (optionele) override; lege strings in de override tellen niet. */
+  // Velden waarbij een lege waarde ("", false, null) in de override bewust iets UITzet.
+  var CLEARABLE_KEYS = ["registerFolder"];
+
+  /**
+   * Combineert defaults met een (optionele) override. Lege waarden in de override tellen als
+   * "niet ingesteld", behalve voor CLEARABLE_KEYS: daar zet "", false of null de functie uit ("").
+   */
   function mergeConfig(defaults, override) {
     var out = {};
     var k;
     for (k in (defaults || {})) out[k] = defaults[k];
     for (k in (override || {})) {
+      if (!Object.prototype.hasOwnProperty.call(override, k)) continue;
       var v = override[k];
-      if (v === undefined || v === null || v === "") continue;
+      var empty = v === undefined || v === null || v === "" || v === false;
+      if (empty) {
+        if (CLEARABLE_KEYS.indexOf(k) >= 0 && v !== undefined) out[k] = "";
+        continue;
+      }
       out[k] = v;
     }
     return out;
+  }
+
+  /** Mapnaam als string; false/null/"" -> "" (uit). */
+  function folderValue(f) {
+    return typeof f === "string" ? f.trim() : "";
   }
 
   /** Valideert de config; geeft een lijst met Nederlandse foutmeldingen terug. */

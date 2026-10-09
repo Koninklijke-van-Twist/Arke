@@ -217,3 +217,25 @@ test("foldersToEnsure: tussenmappen eerst, geen dubbelen", () => {
     ["Klantmail", "Klantmail/_Inbox", "Klantmail/_Register"]);
   assert.deepEqual(Core.foldersToEnsure({ inboxFolder: "_Inbox", registerFolder: "" }), ["_Inbox"]);
 });
+
+test("mergeConfig: registerFolder \"\"/false/null in override zet het register uit", () => {
+  const d = { registerFolder: "_Register", inboxFolder: "_Inbox", driveId: "", libraryName: "" };
+  for (const off of ["", false, null]) {
+    const m = Core.mergeConfig(d, { registerFolder: off });
+    assert.equal(m.registerFolder, "", `registerFolder=${JSON.stringify(off)}`);
+    assert.deepEqual(Core.foldersToEnsure(m), ["_Inbox"]);
+  }
+  // Niet genoemd of undefined = default blijft.
+  assert.equal(Core.mergeConfig(d, {}).registerFolder, "_Register");
+  assert.equal(Core.mergeConfig(d, { registerFolder: undefined }).registerFolder, "_Register");
+  // Andere lege velden blijven "niet ingesteld".
+  const m = Core.mergeConfig({ ...d, driveId: "b!default", inboxFolder: "_Inbox" }, { driveId: "", inboxFolder: null, libraryName: false });
+  assert.equal(m.driveId, "b!default");
+  assert.equal(m.inboxFolder, "_Inbox");
+  assert.equal(m.libraryName, "");
+});
+
+test("foldersToEnsure: false/null registerFolder maakt geen map 'false'/'null'", () => {
+  assert.deepEqual(Core.foldersToEnsure({ inboxFolder: "_Inbox", registerFolder: false }), ["_Inbox"]);
+  assert.deepEqual(Core.foldersToEnsure({ inboxFolder: "_Inbox", registerFolder: null }), ["_Inbox"]);
+});

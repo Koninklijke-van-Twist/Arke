@@ -92,7 +92,7 @@ Arke bevraagt zelf geen BC. `processing.status` kan deel 2 bijwerken (bijvoorbee
 - **Primair:** `_Register/<messageKey>.json`. Deze map blijft staan als deel 2 de mails uit `_Inbox` verplaatst, zodat "al opgeslagen" ook dan klopt. Deel 2 hoeft niets met `_Register` te doen. Laat het register vooral **niet** leegmaken.
 - **Secundair:** de sidecar met dezelfde naam in `_Inbox`.
 - **Vangnet:** uploads gebruiken `conflictBehavior=fail`, dus er wordt nooit iets overschreven.
-- Wil je geen register, zet dan `registerFolder: ""` in `config.js` (override). Dedupe werkt dan alleen zolang de mail nog in `_Inbox` staat.
+- Wil je geen register, zet dan `registerFolder: ""` (of `false`/`null`) in `config.js` (override). `_Register` wordt dan ook niet aangemaakt. Dedupe werkt dan alleen zolang de mail nog in `_Inbox` staat. (Voor alle andere velden betekent een lege waarde in `config.js` "niet ingesteld": de default blijft.)
 
 ### Graph-rechten: waarom `Sites.Selected`
 
