@@ -1,0 +1,20 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node --test tests/
+      - run: node tools/build-manifest.mjs --host https://sleutels.kvt.nl/arke
+      - name: Manifest XML well-formed
+        run: python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse('dist/manifest.xml'); print('ok')"

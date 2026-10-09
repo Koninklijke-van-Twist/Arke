@@ -1,0 +1,140 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "1.0.0",
+  "id": "e3d94c8f-153a-4556-819c-29f810c500fb",
+  "localizationInfo": {
+    "defaultLanguageTag": "nl-nl"
+  },
+  "developer": {
+    "name": "Koninklijke van Twist",
+    "websiteUrl": "{{HOST_URL}}/",
+    "privacyUrl": "{{HOST_URL}}/privacy.html",
+    "termsOfUseUrl": "{{HOST_URL}}/privacy.html"
+  },
+  "name": {
+    "short": "Arke",
+    "full": "Arke - Opslaan in SharePoint"
+  },
+  "description": {
+    "short": "Sla een mail handmatig op in SharePoint.",
+    "full": "Slaat de geopende mail handmatig op als .eml (met JSON-metadata) in de klantmail-map in SharePoint. Er wordt nooit automatisch iets opgeslagen."
+  },
+  "icons": {
+    "outline": "outline-32.png",
+    "color": "icon-192.png"
+  },
+  "accentColor": "#0B3D6E",
+  "validDomains": [
+    "{{HOST_DOMAIN}}"
+  ],
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {
+          "name": "MailboxItem.Read.User",
+          "type": "Delegated"
+        }
+      ]
+    }
+  },
+  "extensions": [
+    {
+      "requirements": {
+        "scopes": [
+          "mail"
+        ],
+        "capabilities": [
+          {
+            "name": "Mailbox",
+            "minVersion": "1.5"
+          }
+        ]
+      },
+      "runtimes": [
+        {
+          "requirements": {
+            "capabilities": [
+              {
+                "name": "Mailbox",
+                "minVersion": "1.5"
+              }
+            ]
+          },
+          "id": "TaskPaneRuntime",
+          "type": "general",
+          "code": {
+            "page": "{{HOST_URL}}/taskpane.html"
+          },
+          "lifetime": "short",
+          "actions": [
+            {
+              "id": "OpenTaskpane",
+              "type": "openPage",
+              "pinnable": true,
+              "view": "dashboard"
+            }
+          ]
+        }
+      ],
+      "ribbons": [
+        {
+          "contexts": [
+            "mailRead"
+          ],
+          "tabs": [
+            {
+              "builtInTabId": "TabDefault",
+              "groups": [
+                {
+                  "id": "arkeGroup",
+                  "label": "Klantmail",
+                  "icons": [
+                    {
+                      "size": 16,
+                      "url": "{{HOST_URL}}/assets/icon-16.png"
+                    },
+                    {
+                      "size": 32,
+                      "url": "{{HOST_URL}}/assets/icon-32.png"
+                    },
+                    {
+                      "size": 80,
+                      "url": "{{HOST_URL}}/assets/icon-80.png"
+                    }
+                  ],
+                  "controls": [
+                    {
+                      "id": "arkeSaveButton",
+                      "type": "button",
+                      "label": "Opslaan in SharePoint",
+                      "icons": [
+                        {
+                          "size": 16,
+                          "url": "{{HOST_URL}}/assets/icon-16.png"
+                        },
+                        {
+                          "size": 32,
+                          "url": "{{HOST_URL}}/assets/icon-32.png"
+                        },
+                        {
+                          "size": 80,
+                          "url": "{{HOST_URL}}/assets/icon-80.png"
+                        }
+                      ],
+                      "supertip": {
+                        "title": "Opslaan in SharePoint",
+                        "description": "Sla deze mail handmatig op als .eml in de klantmail-map in SharePoint."
+                      },
+                      "actionId": "OpenTaskpane"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
