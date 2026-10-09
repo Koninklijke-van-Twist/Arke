@@ -5,7 +5,7 @@
  */
 (function () {
   "use strict";
-  var cfg = window.ARKE_CONFIG || {};
+  var cfg = window.ArkeCore.mergeConfig(window.ARKE_DEFAULTS, window.ARKE_CONFIG);
 
   function send(obj) {
     Office.context.ui.messageParent(JSON.stringify(obj));

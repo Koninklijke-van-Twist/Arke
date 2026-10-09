@@ -104,7 +104,119 @@
     return putLarge(token, cfg, folder, fileName, bytes, onProgress);
   }
 
+  // ---- Site/drive-resolutie (runtime, met het gedelegeerde token) ----
+
+  function cacheGet(key) {
+    try {
+      var v = root.localStorage && root.localStorage.getItem(key);
+      if (v) return JSON.parse(v);
+    } catch (e) { /* localStorage kan geblokkeerd zijn */ }
+    try {
+      var rs = root.Office && Office.context && Office.context.roamingSettings;
+      var r = rs && rs.get(key);
+      if (r) return typeof r === "string" ? JSON.parse(r) : r;
+    } catch (e) { /* geen roamingSettings */ }
+    return null;
+  }
+
+  function cacheSet(key, value) {
+    try { root.localStorage && root.localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* negeren */ }
+    try {
+      var rs = root.Office && Office.context && Office.context.roamingSettings;
+      if (rs) { rs.set(key, value); rs.saveAsync(function () {}); }
+    } catch (e) { /* negeren */ }
+  }
+
+  function cacheClear(key) {
+    try { root.localStorage && root.localStorage.removeItem(key); } catch (e) { /* negeren */ }
+    try {
+      var rs = root.Office && Office.context && Office.context.roamingSettings;
+      if (rs) { rs.remove(key); rs.saveAsync(function () {}); }
+    } catch (e) { /* negeren */ }
+  }
+
+  async function getJson(token, url) {
+    var res = await request(token, "GET", url);
+    var body = await json(res);
+    if (!res.ok) throw graphError(res, body);
+    return body;
+  }
+
+  /**
+   * Zoekt site-id en drive-id op bij cfg.siteUrl. Probeert eerst "site + bibliotheek"
+   * (/sites/A met bibliotheek B) en daarna "subsite" (/sites/A/B, standaardbibliotheek).
+   * Gooit een nette fout als niets past.
+   */
+  async function discoverTarget(token, cfg) {
+    var candidates = Core.siteCandidates(cfg.siteUrl, cfg.libraryName);
+    var lastErr = null;
+    for (var i = 0; i < candidates.length; i++) {
+      var c = candidates[i];
+      try {
+        var site = await getJson(token, "/sites/" + c.sitePath + "?$select=id,webUrl,displayName");
+        var drive = null;
+        if (c.library) {
+          var drives = await getJson(token, "/sites/" + encodeURIComponent(site.id) + "/drives?$select=id,name,webUrl");
+          drive = Core.pickDrive(drives && drives.value, c.library);
+        } else {
+          drive = await getJson(token, "/sites/" + encodeURIComponent(site.id) + "/drive?$select=id,name,webUrl");
+        }
+        if (drive && drive.id) {
+          return { siteId: site.id, driveId: drive.id, driveName: drive.name, webUrl: drive.webUrl, kind: c.kind };
+        }
+      } catch (e) {
+        if (e.status && e.status !== 404 && e.status !== 400) lastErr = e; // 403 bewaren voor een duidelijke melding
+      }
+    }
+    if (lastErr) throw lastErr;
+    var err = new Error("SharePoint-bibliotheek niet gevonden bij " + cfg.siteUrl);
+    err.status = 404;
+    throw err;
+  }
+
+  /**
+   * Geeft { siteId, driveId } terug: uit config (override), uit de cache, of via Graph.
+   * opts.refresh = true negeert de cache.
+   */
+  async function resolveTarget(token, cfg, opts) {
+    if (cfg.driveId) return { siteId: cfg.siteId || null, driveId: cfg.driveId, source: "config" };
+    var key = Core.targetCacheKey(cfg);
+    if (!(opts && opts.refresh)) {
+      var cached = cacheGet(key);
+      if (cached && cached.driveId) { cached.source = "cache"; return cached; }
+    }
+    var found = await discoverTarget(token, cfg);
+    cacheSet(key, { siteId: found.siteId, driveId: found.driveId, driveName: found.driveName, webUrl: found.webUrl, kind: found.kind });
+    found.source = "graph";
+    return found;
+  }
+
+  function forgetTarget(cfg) {
+    cacheClear(Core.targetCacheKey(cfg));
+  }
+
+  /** Maakt _Inbox/_Register (en tussenmappen) aan als ze ontbreken; 409 = bestaat al. */
+  async function ensureFolders(token, cfg) {
+    var folders = Core.foldersToEnsure(cfg);
+    for (var i = 0; i < folders.length; i++) {
+      var parts = folders[i].split("/");
+      var name = parts.pop();
+      var parent = parts.join("/");
+      var url = "/drives/" + encodeURIComponent(cfg.driveId) +
+        (parent ? "/root:/" + Core.drivePath(parent) + ":/children" : "/root/children");
+      var res = await request(token, "POST", url, {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name, folder: {}, "@microsoft.graph.conflictBehavior": "fail" })
+      });
+      if (res.ok || res.status === 409) continue;
+      throw graphError(res, await json(res));
+    }
+  }
+
   root.ArkeGraph = {
+    resolveTarget: resolveTarget,
+    forgetTarget: forgetTarget,
+    ensureFolders: ensureFolders,
     exists: exists,
     checkFolder: checkFolder,
     upload: upload

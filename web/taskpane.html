@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Opslaan in SharePoint</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <script src="config.js"></script>
+  <script src="js/defaults.js"></script>
+  <script src="config.js" onerror="void 0"></script>
   <script src="vendor/msal-browser.min.js"></script>
   <script src="js/core.js"></script>
   <script src="js/graph.js"></script>
@@ -28,7 +29,7 @@
 
     <label for="customer-hint" class="label">Klant (optioneel)</label>
     <input id="customer-hint" type="text" maxlength="120" autocomplete="off"
-           placeholder="Bijv. klantnaam of klantnummer">
+           placeholder="Bijv. BC-klantnummer (of klantnaam)">
     <p class="help">Helpt bij het automatisch indelen. Laat leeg als je het niet weet.</p>
 
     <button id="save" class="primary" type="button" disabled>Opslaan in SharePoint</button>

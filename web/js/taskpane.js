@@ -4,10 +4,31 @@
  */
 (function () {
   "use strict";
-  var APP_VERSION = "1.0.0";
+  var APP_VERSION = "1.1.0";
   var Core = window.ArkeCore;
-  var cfg = window.ARKE_CONFIG;
+  var cfg = Core.mergeConfig(window.ARKE_DEFAULTS, window.ARKE_CONFIG);
   var busy = false;
+  var foldersReady = {}; // per driveId: mappen deze sessie al gecontroleerd
+
+  /** Zoekt de doel-drive op en zorgt dat de mappen bestaan. Geeft een runtime-config terug. */
+  async function prepareTarget(token, refresh) {
+    var target = await ArkeGraph.resolveTarget(token, cfg, { refresh: refresh });
+    var runCfg = Object.assign({}, cfg, { siteId: target.siteId, driveId: target.driveId });
+    if (!foldersReady[runCfg.driveId]) {
+      try {
+        await ArkeGraph.ensureFolders(token, runCfg);
+      } catch (e) {
+        // Gecachte drive bestaat niet meer: cache weggooien en één keer opnieuw zoeken.
+        if (e.status === 404 && target.source === "cache") {
+          ArkeGraph.forgetTarget(cfg);
+          return prepareTarget(token, true);
+        }
+        throw e;
+      }
+      foldersReady[runCfg.driveId] = true;
+    }
+    return runCfg;
+  }
 
   function $(id) { return document.getElementById(id); }
 
@@ -87,6 +108,8 @@
     try {
       var token = await ArkeAuth.getToken(cfg);
       $("auth-mode").textContent = "· aanmelding: " + (ArkeAuth.mode() === "naa" ? "SSO" : "dialoog");
+      progress(0.1);
+      var rc = await prepareTarget(token, false);
       progress(0.15);
 
       var profile = Office.context.mailbox.userProfile;
@@ -110,8 +133,8 @@
       // Dedupe op internetMessageId: register (blijft bestaan als deel 2 de mail verplaatst) + _Inbox.
       var registerName = meta.messageKey + ".json";
       var checks = {
-        registerExists: cfg.registerFolder ? await ArkeGraph.exists(token, cfg, cfg.registerFolder, registerName) : false,
-        inboxExists: await ArkeGraph.exists(token, cfg, cfg.inboxFolder, meta.files.metadata)
+        registerExists: rc.registerFolder ? await ArkeGraph.exists(token, rc, rc.registerFolder, registerName) : false,
+        inboxExists: await ArkeGraph.exists(token, rc, rc.inboxFolder, meta.files.metadata)
       };
       var decision = Core.dedupeDecision(checks);
       if (decision.duplicate) {
@@ -126,7 +149,7 @@
       // Volgorde: eerst .eml, dan de sidecar .json. Deel 2 start op de .json, dan is de .eml er gegarandeerd.
       var emlItem;
       try {
-        emlItem = await ArkeGraph.upload(token, cfg, cfg.inboxFolder, meta.files.eml, eml, "message/rfc822",
+        emlItem = await ArkeGraph.upload(token, rc, rc.inboxFolder, meta.files.eml, eml, "message/rfc822",
           function (f) { progress(0.35 + f * 0.5); });
       } catch (e) {
         if (e.status === 409) {
@@ -139,14 +162,14 @@
       meta.files.emlSize = eml.length;
       if (emlItem && emlItem.webUrl) meta.files.emlWebUrl = emlItem.webUrl;
       var metaBytes = new TextEncoder().encode(JSON.stringify(meta, null, 2));
-      await ArkeGraph.upload(token, cfg, cfg.inboxFolder, meta.files.metadata, metaBytes, "application/json");
+      await ArkeGraph.upload(token, rc, rc.inboxFolder, meta.files.metadata, metaBytes, "application/json");
       progress(0.95);
 
-      if (cfg.registerFolder) {
+      if (rc.registerFolder) {
         try {
           var reg = { schema: "arke.register/v1", messageKey: meta.messageKey, internetMessageId: meta.internetMessageId,
-            savedBy: meta.savedBy, savedAt: meta.savedAt, files: meta.files, inboxFolder: cfg.inboxFolder };
-          await ArkeGraph.upload(token, cfg, cfg.registerFolder, registerName,
+            savedBy: meta.savedBy, savedAt: meta.savedAt, files: meta.files, inboxFolder: rc.inboxFolder };
+          await ArkeGraph.upload(token, rc, rc.registerFolder, registerName,
             new TextEncoder().encode(JSON.stringify(reg, null, 2)), "application/json");
         } catch (e) {
           if (e.status !== 409) console.warn("Register bijwerken mislukt", e);

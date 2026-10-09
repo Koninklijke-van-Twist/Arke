@@ -16,10 +16,11 @@ Arke is een Outlook-add-in die ICT centraal uitrolt naar alle medewerkers. Een k
 2. Optioneel vult de medewerker een **klant** in (naam of klantnummer). Dat is een hint voor deel 2.
 3. Na een klik op **Opslaan in SharePoint**:
    1. haalt de add-in een Graph-token op via **NAA** (`msal.createNestablePublicClientApplication`). Is NAA niet beschikbaar, dan opent een klein aanmeldvenster (Office-dialoog met de standaard MSAL-redirectflow, `dialog.html`);
-   2. **dedupe**: de add-in berekent een sleutel uit de `internetMessageId` en controleert of `_Register/<sleutel>.json` of de sidecar in `_Inbox` al bestaat. Zo ja, dan krijgt de medewerker de melding "al eerder opgeslagen" en wordt er niets geüpload;
-   3. haalt de complete mail op als `.eml` via Office.js `item.getAsFileAsync()` (Mailbox 1.14). Daarvoor is geen Graph-mailrecht nodig;
-   4. uploadt de `.eml` naar `_Inbox` (tot 4 MB met één `PUT`, groter via een *upload session* in stukken van 3,125 MiB), daarna de **JSON-sidecar** en tot slot een kleine registerregel in `_Register`. Er wordt nooit overschreven (`conflictBehavior=fail`);
-   5. toont "✓ Opgeslagen" met een link naar het bestand, of een duidelijke Nederlandse foutmelding (geen rechten, map niet gevonden, geen admin consent, te groot, SharePoint druk, enzovoort).
+   2. zoekt de doelbibliotheek op (site-id en drive-id via Graph, daarna bewaard; zie *Configuratie*) en maakt `_Inbox` en `_Register` aan als ze nog niet bestaan;
+   3. **dedupe**: de add-in berekent een sleutel uit de `internetMessageId` en controleert of `_Register/<sleutel>.json` of de sidecar in `_Inbox` al bestaat. Zo ja, dan krijgt de medewerker de melding "al eerder opgeslagen" en wordt er niets geüpload;
+   4. haalt de complete mail op als `.eml` via Office.js `item.getAsFileAsync()` (Mailbox 1.14). Daarvoor is geen Graph-mailrecht nodig;
+   5. uploadt de `.eml` naar `_Inbox` (tot 4 MB met één `PUT`, groter via een *upload session* in stukken van 3,125 MiB), daarna de **JSON-sidecar** en tot slot een kleine registerregel in `_Register`. Er wordt nooit overschreven (`conflictBehavior=fail`);
+   6. toont "✓ Opgeslagen" met een link naar het bestand, of een duidelijke Nederlandse foutmelding (geen rechten, map niet gevonden, geen admin consent, te groot, SharePoint druk, enzovoort).
 
 ### Bestandsnamen
 
@@ -57,7 +58,12 @@ Voorbeeld:
   "attachments": [{ "name": "offerte.pdf", "size": 123456, "contentType": "application/pdf" }],
   "savedBy": { "name": "Tim Falken", "email": "tfalken@kvt.nl" },
   "savedAt": "2026-10-09T08:01:44.120Z",
-  "customerHint": "Klant BV / 10023",
+  "customerHint": "10023",
+  "entityAttachmentGroup": "016_CORRESPONDENCE",
+  "customerNo": "10023",
+  "kvtCustomerName": "",
+  "kvtSalesQuoteNo": "",
+  "kvtSalesQuoteDescription": "",
   "files": {
     "eml": "2026-10-09_0732_Offerte-pomp-P-200_3f9a1c2b7d4e5f60.eml",
     "metadata": "2026-10-09_0732_Offerte-pomp-P-200_3f9a1c2b7d4e5f60.json",
@@ -69,14 +75,24 @@ Voorbeeld:
 }
 ```
 
-`customerHint` is `null` als de medewerker niets invult. `processing.status` kan deel 2 bijwerken (bijvoorbeeld naar `verwerkt` of `onbekend`).
+`customerHint` is `null` als de medewerker niets invult. Velden voor de BC-koppeling in deel 2:
+
+| Veld | Gevuld door Arke | Door deel 2 (Power Automate/Copilot) |
+|---|---|---|
+| `entityAttachmentGroup` | altijd `"016_CORRESPONDENCE"` | – |
+| `customerNo` | de klanthint (zoals ingevuld), anders `""` | controleren of aanvullen met het echte BC-klantnummer |
+| `kvtCustomerName` | `""` | klantnaam uit BC |
+| `kvtSalesQuoteNo` | `""` | offertenummer, als de mail over een offerte gaat |
+| `kvtSalesQuoteDescription` | `""` | omschrijving van de offerte |
+
+Arke bevraagt zelf geen BC. `processing.status` kan deel 2 bijwerken (bijvoorbeeld naar `verwerkt` of `onbekend`).
 
 ### Dedupe
 
 - **Primair:** `_Register/<messageKey>.json`. Deze map blijft staan als deel 2 de mails uit `_Inbox` verplaatst, zodat "al opgeslagen" ook dan klopt. Deel 2 hoeft niets met `_Register` te doen. Laat het register vooral **niet** leegmaken.
 - **Secundair:** de sidecar met dezelfde naam in `_Inbox`.
 - **Vangnet:** uploads gebruiken `conflictBehavior=fail`, dus er wordt nooit iets overschreven.
-- Wil je geen register, zet dan `registerFolder: ""` in `config.js`. Dedupe werkt dan alleen zolang de mail nog in `_Inbox` staat.
+- Wil je geen register, zet dan `registerFolder: ""` in `config.js` (override). Dedupe werkt dan alleen zolang de mail nog in `_Inbox` staat.
 
 ### Graph-rechten: waarom `Sites.Selected`
 
@@ -86,7 +102,7 @@ Voorbeeld:
 | `Files.ReadWrite.All` | De app mag namens de gebruiker bij álle bestanden waar die gebruiker bij kan (OneDrive en alle sites). | Eenvoudiger alternatief als stap 1e niet lukt. Het blijft beperkt tot de rechten van de gebruiker, maar de reikwijdte is veel breder. |
 | ~~`Mail.Read`~~ | Niet nodig: de `.eml` komt via Office.js (`getAsFileAsync`) met het manifestrecht `ReadItem`. | Niet aanvragen. |
 
-De add-in vraagt alleen de scopes die in `config.js` staan. Wissel je van recht, pas dan alleen `scopes` aan, bijvoorbeeld naar `["https://graph.microsoft.com/Files.ReadWrite.All"]`.
+De add-in vraagt alleen de scopes uit de configuratie (`web/js/defaults.js`, eventueel overschreven door `config.js`). Wissel je van recht, pas dan alleen `scopes` aan, bijvoorbeeld naar `["https://graph.microsoft.com/Files.ReadWrite.All"]`.
 
 ### Ondersteunde Outlook-versies
 
@@ -111,9 +127,10 @@ web/                       pagina-root (wordt naar sleutels.kvt.nl/arke/ gedeplo
   taskpane.html            het taakvenster
   dialog.html              fallback-aanmeldvenster (als NAA niet kan)
   privacy.html             korte privacyverklaring
-  config.example.js        voorbeeldconfig → kopieer naar config.js (NIET in git)
+  js/defaults.js           standaardconfig (client-id, tenant, siteUrl, mappen); geen geheimen
+  config.example.js        optionele override → kopieer naar config.js (NIET in git)
   js/core.js               pure logica: bestandsnaam, metadata, dedupe, chunks (getest)
-  js/graph.js              Graph-uploads (PUT / upload session)
+  js/graph.js              Graph: site/drive opzoeken + cache, mappen aanmaken, uploads
   js/auth.js               NAA + fallback
   js/taskpane.js           UI en flow
   vendor/msal-browser.min.js  @azure/msal-browser 5.25.0 (MIT)
@@ -131,77 +148,65 @@ Testen: `npm test` (Node 20+, geen dependencies). De workflow **Tests** draait z
 
 ## Wat Tim moet doen (stap voor stap)
 
-> Tip: doe alles met een account dat **Globale beheerder** of **Toepassingsbeheerder + SharePoint-beheerder** is. Ga ervan uit dat het samen ongeveer een uur kost.
+### Al gedaan (door Milan, 9 oktober)
 
-### Stap 1 – App-registratie in Entra ID
+- Entra-app geregistreerd: client-id `d2a6ccbd-3981-4e5f-a07c-83a277f978f8`, tenant `e7f5c109-53a0-45fc-8779-4c9d83a4572a`.
+- SPA-redirect-URI's: `brk-multihub://sleutels.kvt.nl` (NAA) en `https://sleutels.kvt.nl/arke/dialog.html` (fallback).
+- `Sites.Selected` (write) voor de app doorgevoerd op de site.
+- **Controleer nog even** in Entra → App-registraties → Arke → **API-machtigingen** dat gedelegeerd `Sites.Selected` (en `User.Read`) er staan met een groen vinkje bij *Beheerderstoestemming verleend*. Zonder admin consent krijgt elke gebruiker een toestemmingsfout.
 
-1. **a. Registreren.** Ga naar <https://entra.microsoft.com> → **Identiteit → Toepassingen → App-registraties → Nieuwe registratie**.
-   - Naam: `Arke – Outlook naar SharePoint`
-   - Ondersteunde accounttypen: **Alleen accounts in deze organisatiemap (één tenant)**
-   - Omleidings-URI: platform **Single-page application (SPA)**, waarde `brk-multihub://sleutels.kvt.nl`
-     (alleen het domein, zonder `/arke`. Dit is de NAA-redirect voor Outlook.)
-   - Klik op **Registreren**. Noteer de **Toepassings-id (client)** en de **Map-id (tenant)**.
-2. **b. Tweede redirect voor de fallback.** Ga in de app naar **Verificatie → Single-page application → URI toevoegen**: `https://sleutels.kvt.nl/arke/dialog.html`. Klik op **Opslaan**.
-   (Laat bij Verificatie de opties *Toegangstokens*/*ID-tokens* onder "Impliciete toekenning" **uit**. Die zijn niet nodig.)
-3. **c. API-machtigingen.** Ga naar **API-machtigingen → Een machtiging toevoegen → Microsoft Graph → Gedelegeerde machtigingen**:
-   - `Sites.Selected` (aanbevolen; óf `Files.ReadWrite.All`, zie de tabel hierboven)
-   - `User.Read` staat er standaard al in. Laat die staan.
-   - Er is **geen** clientgeheim of certificaat nodig. Maak die ook niet aan.
-4. **d. Admin consent.** Klik op **Beheerderstoestemming verlenen voor Koninklijke van Twist** en bevestig. Achter elke machtiging moet een groen vinkje komen.
-5. **e. (Alleen bij `Sites.Selected`) De app toegang geven tot de doelsite.** Zonder deze stap krijgt iedereen "geen schrijfrechten".
-   - Open <https://developer.microsoft.com/graph/graph-explorer> en meld je aan als beheerder.
-   - Geef Graph Explorer eenmalig het recht `Sites.FullControl.All` (tabblad **Modify permissions**, toestemming geven).
-   - Voer uit: `POST https://graph.microsoft.com/v1.0/sites/{site-id}/permissions` (site-id: zie stap 2) met als body:
-     ```json
-     {
-       "roles": ["write"],
-       "grantedToIdentities": [
-         { "application": { "id": "<client-id van Arke>", "displayName": "Arke" } }
-       ]
-     }
-     ```
-   - Je krijgt `201 Created` terug. Controleer met `GET …/sites/{site-id}/permissions`.
-   - Alternatief in PowerShell (PnP): `Grant-PnPAzureADAppSitePermission -AppId <client-id> -DisplayName Arke -Site https://kvtnl.sharepoint.com/sites/<site> -Permissions Write`.
-   - Medewerkers moeten daarnaast zelf **bijdragen** (bewerken) op de site of bibliotheek mogen. `Sites.Selected` geeft nooit méér dan de gebruiker al heeft.
+### Configuratie: niets meer te doen
 
-### Stap 2 – De doelsite en de map `_Inbox`
+Client-id, tenant-id en de site staan als defaults in `web/js/defaults.js` (dit zijn geen geheimen). **`config.js` is niet meer nodig.** Arke zoekt zelf site-id en drive-id op via Graph, met het token van de gebruiker:
 
-1. Maak (of kies) de SharePoint-site, bijvoorbeeld `https://kvtnl.sharepoint.com/sites/Klantmail` (zie de open vragen), en de documentbibliotheek (standaard *Documenten*).
-2. Maak in de bibliotheek de mappen **`_Inbox`** en **`_Register`** aan.
-3. **Site-id vinden** in Graph Explorer:
-   `GET https://graph.microsoft.com/v1.0/sites/kvtnl.sharepoint.com:/sites/Klantmail`
-   → het veld `id` ziet eruit als `kvtnl.sharepoint.com,1111…,2222…`. Dat is de **site-id**.
-4. **Drive-id vinden:**
-   `GET https://graph.microsoft.com/v1.0/sites/{site-id}/drives`
-   → zoek de bibliotheek (bv. `"name": "Documenten"`) en neem het `id` (begint met `b!`). Dat is de **drive-id**.
-5. Controle: `GET https://graph.microsoft.com/v1.0/drives/{drive-id}/root:/_Inbox` moet de map teruggeven.
-6. Vul `web/config.example.js` in en sla hem op als **`config.js`**: `clientId`, `tenantId`, `scopes`, `siteId`, `driveId`, `inboxFolder` (`_Inbox`) en `registerFolder` (`_Register`). Zet `config.js` eenmalig met een FTP-programma in de map op de server (dezelfde map als `taskpane.html`). Het bestand staat niet in git en de deploy laat het staan.
-   Wil je een submap gebruiken, bijvoorbeeld `Klantmail/_Inbox`? Dan zet je dat pad als `inboxFolder`.
+1. eerst `GET /sites/kvtnl.sharepoint.com:/sites/BCDocumentRepository` → `GET /sites/{id}/drives` → de bibliotheek met naam of URL-deel **`Customer`**;
+2. bestaat die bibliotheek niet, dan wordt `Customer` als **subsite** behandeld: `GET /sites/kvtnl.sharepoint.com:/sites/BCDocumentRepository/Customer` → de standaardbibliotheek (`/drive`).
 
-### Stap 3 – FTP-secret en de eerste deploy
+Het resultaat wordt in de browser bewaard (`localStorage` + Outlook-`roamingSettings`). Klopt de bewaarde drive niet meer (404), dan zoekt Arke één keer opnieuw.
+De mappen **`_Inbox`** en **`_Register`** maakt Arke zelf aan in de root van de bibliotheek bij de eerste keer opslaan (`POST …/children` met `conflictBehavior: fail`; *bestaat al* wordt genegeerd).
+
+Wil je toch iets afwijkends instellen, bijvoorbeeld een andere bibliotheeknaam (`libraryName`), een vaste `siteId`/`driveId`, of `Files.ReadWrite.All` als scope? Kopieer dan `web/config.example.js` naar `web/config.js`, zet daarin alleen wat je wilt wijzigen, en upload hem eenmalig via FTP naast `taskpane.html`. Dat bestand staat niet in git en de deploy laat het staan.
+
+> Achtergrond bij de app-registratie (voor als er ooit een nieuwe nodig is): type **SPA**, één tenant, de twee redirect-URI's hierboven, gedelegeerd **`Sites.Selected`**, admin consent, en de site-grant via Graph Explorer:
+> `POST https://graph.microsoft.com/v1.0/sites/{site-id}/permissions` met body
+> `{"roles":["write"],"grantedToIdentities":[{"application":{"id":"<client-id>","displayName":"Arke"}}]}`
+> (of PnP: `Grant-PnPAzureADAppSitePermission -AppId <client-id> -DisplayName Arke -Site https://kvtnl.sharepoint.com/sites/BCDocumentRepository -Permissions Write`). Er is geen clientgeheim nodig.
+> Let op: medewerkers moeten daarnaast zelf **bewerken/bijdragen** mogen in de bibliotheek. `Sites.Selected` geeft nooit meer dan de gebruiker al heeft.
+
+### Stap 1 – FTP-secret en de eerste deploy
 
 1. GitHub → repo **Arke** → **Settings → Secrets and variables → Actions → New repository secret**:
-   `FTP_REMOTE_DIR` = de map op de FTP-server voor `sleutels.kvt.nl/arke` (zelfde opbouw als bij de andere repo's, bv. `…/arke`). `FTP_HOST`, `FTP_USERNAME` en `FTP_PASSWORD` staan al als organisatie-secrets (zichtbaar voor alle repo's) en hoef je niet opnieuw te zetten.
-2. Merge de PR naar `master`. De workflow **Deploy to FTP on master push** zet `web/` live.
-3. Upload `config.js` (stap 2.6) en controleer dat <https://sleutels.kvt.nl/arke/taskpane.html> opent. Buiten Outlook doet de pagina niets, maar hij mag geen 404 geven.
+   `FTP_REMOTE_DIR` = de map op de FTP-server voor `sleutels.kvt.nl/arke` (zelfde opbouw als bij de andere repo's, bv. `…/arke`). `FTP_HOST`, `FTP_USERNAME` en `FTP_PASSWORD` staan al als organisatie-secrets en hoef je niet te zetten.
+2. Review en merge PR #1 naar `master`. De workflow **Deploy to FTP on master push** zet `web/` live.
+3. Controleer dat <https://sleutels.kvt.nl/arke/taskpane.html> en <https://sleutels.kvt.nl/arke/js/defaults.js> openen (geen 404). Buiten Outlook doet de taskpane verder niets.
 
-### Stap 4 – Uitrol via het Microsoft 365-beheercentrum
+### Stap 2 – Manifest maken
 
-1. Maak de definitieve manifest: `npm run manifest -- https://sleutels.kvt.nl/arke` → `dist/manifest.xml`.
-   (Of open `manifest/manifest.template.xml` en vervang elke `{{HOST_URL}}` door `https://sleutels.kvt.nl/arke` en `{{HOST_ORIGIN}}` door `https://sleutels.kvt.nl`.)
-2. Ga naar <https://admin.microsoft.com> → **Instellingen → Geïntegreerde apps → Aangepaste apps uploaden**.
-3. Kies als app-type **Office-invoegtoepassing** en daarna **Manifestbestand uploaden (.xml)** → `dist/manifest.xml`.
-4. **Gebruikers kiezen.** Test eerst met **Specifieke gebruikers/groepen** (bv. Tim en Milan) en zet daarna **Hele organisatie** aan. Kies uitrolmethode **Vast** (standaard), zodat gebruikers de add-in niet kunnen verwijderen. **Beschikbaar** mag ook.
-5. Accepteer de machtigingen ("item lezen") en klik op **Implementeren**.
-6. **Doorlooptijd:** meestal binnen een paar uur, maar Microsoft noemt **tot 24 uur** (soms tot 72 uur) voordat de knop bij iedereen verschijnt. Gebruikers moeten Outlook daarna opnieuw starten. In klassiek Outlook staat de knop op het tabblad *Start* in de groep *Klantmail*, of onder **Apps** als het lint vol is.
-7. **Updates:** wijzigingen in `web/` zijn direct live na een merge, zonder nieuwe uitrol. Alleen bij een wijziging in de manifest (knoptekst, iconen, rechten) hoog je `<Version>` op en upload je hem opnieuw bij *Geïntegreerde apps → Arke → Bijwerken*.
+```
+npm run manifest -- https://sleutels.kvt.nl/arke
+```
+→ `dist/manifest.xml` (en optioneel `dist/unified/`). Je hebt Node 20+ nodig. Zonder Node kan het ook met de hand: open `manifest/manifest.template.xml` en vervang elke `{{HOST_URL}}` door `https://sleutels.kvt.nl/arke` en `{{HOST_ORIGIN}}` door `https://sleutels.kvt.nl`.
+
+### Stap 3 – Uitrol via het Microsoft 365-beheercentrum (Geïntegreerde apps)
+
+1. Ga naar <https://admin.microsoft.com> → **Instellingen → Geïntegreerde apps → Aangepaste apps uploaden**.
+2. Kies als app-type **Office-invoegtoepassing** en daarna **Manifestbestand uploaden (.xml)** → `dist/manifest.xml`.
+3. **Gebruikers kiezen:** test eerst met **Specifieke gebruikers/groepen** (Tim en Milan) en zet daarna **Hele organisatie** aan. Uitrolmethode **Vast** (standaard).
+4. Accepteer de machtigingen ("item lezen") en klik op **Implementeren**.
+5. **Doorlooptijd:** meestal binnen een paar uur, maar het kan **tot 24 uur** duren (soms 72) voordat de knop verschijnt. Start Outlook daarna opnieuw. In klassiek Outlook staat de knop op het tabblad *Start* in de groep *Klantmail*, of onder **Apps**.
+6. **Updates:** wijzigingen in `web/` zijn direct live na een merge. Alleen bij een wijziging in de manifest hoog je `<Version>` op en upload je opnieuw (*Geïntegreerde apps → Arke → Bijwerken*).
+
+> Sneller testen, zonder op de uitrol te wachten: in Outlook op het web kun je een add-in ook zelf toevoegen via **Apps ophalen → Mijn apps → Aangepaste invoegtoepassing toevoegen → Uit bestand** met `dist/manifest.xml`. Dat werkt als sideloaden van eigen add-ins in de tenant is toegestaan.
 
 ### Eerste test (Tim)
 
 1. Open een willekeurige mail in Outlook op het web → **Opslaan in SharePoint** → **Opslaan in SharePoint**.
-2. Verwacht: "✓ Opgeslagen". In `_Inbox` staan een `.eml` en een `.json`, in `_Register` één `.json`.
+2. Verwacht: "✓ Opgeslagen". In de bibliotheek **Customer** zijn `_Inbox` (met een `.eml` en een `.json`) en `_Register` (met één `.json`) automatisch aangemaakt.
 3. Klik nogmaals: de melding wordt "al eerder opgeslagen".
-4. Test ook een mail met een grote bijlage (> 4 MB, upload session) en test in klassiek Outlook.
+4. Test ook een mail met een grote bijlage (> 4 MB) en test in klassiek Outlook (minimaal versie 2404).
+5. **Gaat het mis?** Open in Outlook op het web de ontwikkelaarstools (F12 → Console) en kijk naar de foutmelding:
+   - **403** = geen admin consent, geen site-grant, of de gebruiker heeft geen bewerkrechten in *Customer*;
+   - **"bibliotheek niet gevonden"** = zet `libraryName` (de echte naam van de bibliotheek) in `config.js`, of een vaste `driveId`.
 
 ---
 
@@ -209,7 +214,7 @@ Testen: `npm test` (Node 20+, geen dependencies). De workflow **Tests** draait z
 
 | Vraag | Advies |
 |---|---|
-| **Welke site/bibliotheek?** | Een **nieuwe, aparte site** `Klantmail` (Teams-loze communicatiesite of teamsite) met één bibliotheek. Gebruik dus niet een bestaande afdelingssite: zo zijn rechten, bewaarbeleid en de Copilot-kennisbron (deel 3) los te regelen. |
+| **Welke site/bibliotheek?** | **Besloten:** site `BCDocumentRepository`, bibliotheek `Customer` (`https://kvtnl.sharepoint.com/sites/BCDocumentRepository/Customer`). Arke ondersteunt ook de variant waarin `Customer` een subsite is. Omdat de BC-documenten daar al staan, sluit dit goed aan op `entityAttachmentGroup`/`customerNo` voor deel 2. |
 | **Wie heeft toegang?** | Twee niveaus. **Schrijven** in `_Inbox` en `_Register`: alle medewerkers die de knop krijgen (anders werkt opslaan niet). **Lezen** van de verwerkte klantmappen: start met de groepen die met klanten werken (verkoop, service, projecten), niet "iedereen". `_Inbox` kun je verbergen of lezen beperken tot de beheerders en het flow-account. Let op: in `_Inbox` kan iedere schrijver ook de mails van collega's zien zolang ze niet verwerkt zijn. Zet daarom deel 2 snel op, of geef de map unieke rechten (*bijdragen zonder lezen* bestaat niet standaard; het alternatief is een aparte uploadbibliotheek waarin alleen de flow leest). |
 | **Kiest de medewerker zelf een klant?** | **Ja, optioneel als vrij tekstveld.** Dat zit er nu in (`customerHint`). Het maakt deel 2 betrouwbaarder zonder de medewerker te blokkeren. Een keuzelijst uit BC is een logische vervolgstap (vereist een kleine read-only klanten-endpoint op sleutels.kvt.nl). |
 | **Bewaartermijn / privacy?** | Stel een **retentielabel** in op de site (Purview), bijvoorbeeld **7 jaar** voor klant- en ordercorrespondentie (fiscale bewaarplicht), en korter (bv. 2 jaar) voor overige mails. Laat `_Inbox` niet langer dan nodig vol staan. **Ja, leg het voor aan de privacyfunctionaris**: het gaat om persoonsgegevens van klantcontactpersonen en er komt AI-verwerking bij (deel 2). Handmatig opslaan, rechten volgens SharePoint en geen opslag buiten de M365-tenant helpen daarbij. |

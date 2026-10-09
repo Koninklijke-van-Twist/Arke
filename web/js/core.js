@@ -19,6 +19,8 @@
   // Chunks moeten een veelvoud van 320 KiB zijn (Graph-eis). 10 x 320 KiB = 3,125 MiB.
   var CHUNK_SIZE = 10 * 320 * 1024;
 
+  var ENTITY_ATTACHMENT_GROUP = "016_CORRESPONDENCE";
+
   var RESERVED_NAMES = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
 
   /** Maakt een tekst veilig als (deel van) een SharePoint/OneDrive-bestandsnaam. */
@@ -187,6 +189,12 @@
       savedBy: normalizeAddress(user),
       savedAt: toIso(input.now || new Date()),
       customerHint: cleanHint(input.customerHint) || null,
+      // Vaste waarde + lege velden voor deel 2 (Power Automate/Copilot vult ze in).
+      entityAttachmentGroup: ENTITY_ATTACHMENT_GROUP,
+      customerNo: cleanHint(input.customerHint),
+      kvtCustomerName: "",
+      kvtSalesQuoteNo: "",
+      kvtSalesQuoteDescription: "",
       files: {
         eml: baseName + ".eml",
         metadata: baseName + ".json"
@@ -250,6 +258,92 @@
     return new Uint8Array(Buffer.from(clean, "base64"));
   }
 
+  /**
+   * Splitst een SharePoint-URL: https://kvtnl.sharepoint.com/sites/A/B
+   * -> { host: "kvtnl.sharepoint.com", segments: ["sites","A","B"] } of null.
+   */
+  function parseSiteUrl(url) {
+    var m = /^https:\/\/([a-z0-9.-]+\.sharepoint\.com)(\/[^?#]*)?(?:[?#].*)?$/i.exec(String(url || "").trim());
+    if (!m) return null;
+    var segments = (m[2] || "").split("/").filter(Boolean).map(function (x) {
+      try { return decodeURIComponent(x); } catch (e) { return x; }
+    });
+    // Veelvoorkomende pagina-achtervoegsels negeren (bv. .../Forms/AllItems.aspx).
+    var formsIdx = segments.indexOf("Forms");
+    if (formsIdx > 0) segments = segments.slice(0, formsIdx);
+    if (segments.length && /\.aspx$/i.test(segments[segments.length - 1])) segments.pop();
+    if (segments.length < 2 || !/^(sites|teams)$/i.test(segments[0])) return null;
+    return { host: m[1].toLowerCase(), segments: segments };
+  }
+
+  /**
+   * Kandidaten voor (site, bibliotheek) in volgorde van proberen.
+   * Voor .../sites/A/B:
+   *   1. site /sites/A met bibliotheek "B"      (B = documentbibliotheek)
+   *   2. site /sites/A/B met bibliotheek libraryName of de standaardbibliotheek (B = subsite)
+   * Elk: { sitePath: "kvtnl.sharepoint.com:/sites/A", library: "B" | null }
+   */
+  function siteCandidates(siteUrl, libraryName) {
+    var p = parseSiteUrl(siteUrl);
+    if (!p) return [];
+    var out = [];
+    var segs = p.segments;
+    function path(list) {
+      return p.host + ":/" + list.map(encodeURIComponent).join("/");
+    }
+    if (segs.length >= 3) {
+      out.push({ sitePath: path(segs.slice(0, -1)), library: libraryName || segs[segs.length - 1], kind: "library" });
+    }
+    out.push({ sitePath: path(segs), library: libraryName || null, kind: segs.length >= 3 ? "subsite" : "site" });
+    return out;
+  }
+
+  /** Kiest de drive die bij een bibliotheeknaam hoort (op naam of op het laatste stuk van webUrl). */
+  function pickDrive(drives, library) {
+    var list = drives || [];
+    if (!library) return null;
+    var want = String(library).toLowerCase();
+    var byName = list.filter(function (d) { return String(d.name || "").toLowerCase() === want; })[0];
+    if (byName) return byName;
+    return list.filter(function (d) {
+      var url = String(d.webUrl || "");
+      var last = url.split("/").filter(Boolean).pop() || "";
+      try { last = decodeURIComponent(last); } catch (e) { /* laat staan */ }
+      return last.toLowerCase() === want;
+    })[0] || null;
+  }
+
+  /** Cachesleutel voor de opgeloste site/drive (wisselt mee met URL en bibliotheek). */
+  function targetCacheKey(cfg) {
+    return "arke.target.v1|" + String(cfg.siteUrl || "").toLowerCase().replace(/\/+$/, "") + "|" + String(cfg.libraryName || "").toLowerCase();
+  }
+
+  /** Mappen (incl. tussenliggende) die moeten bestaan: ["_Inbox", "_Register"] of ["A", "A/_Inbox"]. */
+  function foldersToEnsure(cfg) {
+    var out = [];
+    [cfg.inboxFolder, cfg.registerFolder].forEach(function (f) {
+      var parts = String(f || "").split("/").filter(Boolean);
+      for (var i = 1; i <= parts.length; i++) {
+        var p = parts.slice(0, i).join("/");
+        if (out.indexOf(p) < 0) out.push(p);
+      }
+    });
+    return out;
+  }
+
+  /** Combineert defaults met een (optionele) override; lege strings in de override tellen niet. */
+  function mergeConfig(defaults, override) {
+    var out = {};
+    var k;
+    for (k in (defaults || {})) out[k] = defaults[k];
+    for (k in (override || {})) {
+      var v = override[k];
+      if (v === undefined || v === null || v === "") continue;
+      out[k] = v;
+    }
+    return out;
+  }
+
   /** Valideert de config; geeft een lijst met Nederlandse foutmeldingen terug. */
   function validateConfig(cfg) {
     var errors = [];
@@ -257,7 +351,8 @@
     if (!cfg) return ["config.js ontbreekt of is leeg."];
     if (!cfg.clientId || !guid.test(cfg.clientId)) errors.push("clientId ontbreekt of is geen GUID.");
     if (!cfg.tenantId) errors.push("tenantId ontbreekt (GUID of bv. kvt.nl).");
-    if (!cfg.driveId) errors.push("driveId ontbreekt.");
+    if (!cfg.driveId && !cfg.siteUrl) errors.push("siteUrl (of een driveId-override) ontbreekt.");
+    if (cfg.siteUrl && !parseSiteUrl(cfg.siteUrl)) errors.push("siteUrl is geen geldige SharePoint-URL (https://<tenant>.sharepoint.com/sites/...).");
     if (!cfg.inboxFolder) errors.push("inboxFolder ontbreekt (bv. _Inbox).");
     if (!Array.isArray(cfg.scopes) || cfg.scopes.length === 0) errors.push("scopes ontbreekt.");
     return errors;
@@ -269,7 +364,7 @@
     var code = (err && (err.code || err.errorCode)) || "";
     if (status === 401) return "Je sessie is verlopen. Probeer het opnieuw.";
     if (status === 403) return "Je hebt geen schrijfrechten op de SharePoint-map. Vraag ICT om toegang.";
-    if (status === 404) return "De SharePoint-map is niet gevonden. Controleer de configuratie (driveId/inboxFolder).";
+    if (status === 404) return "De SharePoint-site of -bibliotheek is niet gevonden. Controleer siteUrl/libraryName in de configuratie.";
     if (status === 409) return "Deze mail staat al in SharePoint.";
     if (status === 413) return "De mail is te groot om op te slaan.";
     if (status === 429 || status === 503) return "SharePoint is even druk. Probeer het over een minuut opnieuw.";
@@ -298,6 +393,13 @@
     drivePath: drivePath,
     base64ToBytes: base64ToBytes,
     validateConfig: validateConfig,
+    mergeConfig: mergeConfig,
+    parseSiteUrl: parseSiteUrl,
+    siteCandidates: siteCandidates,
+    pickDrive: pickDrive,
+    targetCacheKey: targetCacheKey,
+    foldersToEnsure: foldersToEnsure,
+    ENTITY_ATTACHMENT_GROUP: ENTITY_ATTACHMENT_GROUP,
     friendlyError: friendlyError
   };
 });

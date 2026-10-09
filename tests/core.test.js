@@ -81,11 +81,18 @@ test("buildMetadata levert het sidecar-schema", () => {
   assert.equal(meta.files.eml, `2026-10-08_1200_Offerte-pomp_${meta.messageKey}.eml`);
   assert.equal(meta.files.metadata, meta.files.eml.replace(/\.eml$/, ".json"));
   assert.equal(meta.processing.status, "nieuw");
+  assert.equal(meta.entityAttachmentGroup, "016_CORRESPONDENCE");
+  assert.equal(meta.customerNo, "Klant BV 10023");
+  assert.equal(meta.kvtCustomerName, "");
+  assert.equal(meta.kvtSalesQuoteNo, "");
+  assert.equal(meta.kvtSalesQuoteDescription, "");
 });
 
 test("buildMetadata: lege klanthint wordt null", () => {
   const meta = Core.buildMetadata({ item: { internetMessageId: "<a@b>", dateTimeCreated: "2026-01-01T00:00:00Z" }, customerHint: "   " });
   assert.equal(meta.customerHint, null);
+  assert.equal(meta.customerNo, "");
+  assert.equal(meta.entityAttachmentGroup, "016_CORRESPONDENCE");
   assert.equal(meta.from, null);
   assert.deepEqual(meta.to, []);
 });
@@ -132,6 +139,9 @@ test("validateConfig", () => {
   assert.ok(Core.validateConfig(undefined).length > 0);
   const ok = { clientId: "00000000-0000-0000-0000-000000000000", tenantId: "kvt.nl", driveId: "b!x", inboxFolder: "_Inbox", scopes: ["x"] };
   assert.deepEqual(Core.validateConfig(ok), []);
+  assert.deepEqual(Core.validateConfig({ ...ok, driveId: "", siteUrl: "https://kvtnl.sharepoint.com/sites/A/B" }), []);
+  assert.ok(Core.validateConfig({ ...ok, driveId: "" }).some((e) => /siteUrl/.test(e)));
+  assert.ok(Core.validateConfig({ ...ok, driveId: "", siteUrl: "https://example.com/x" }).some((e) => /siteUrl/.test(e)));
   assert.ok(Core.validateConfig({ ...ok, clientId: "nee" }).some((e) => /clientId/.test(e)));
 });
 
@@ -140,4 +150,70 @@ test("friendlyError geeft Nederlandse meldingen", () => {
   assert.match(Core.friendlyError({ status: 409 }), /al in SharePoint/);
   assert.match(Core.friendlyError({ message: "AADSTS65001: consent required" }), /admin consent/);
   assert.match(Core.friendlyError(new Error("boem")), /boem/);
+});
+
+test("defaults.js bevat de KVT-tenant en is geldig", () => {
+  const fs = require("node:fs");
+  const vm = require("node:vm");
+  const ctx = { window: {} };
+  vm.runInNewContext(fs.readFileSync(require("node:path").join(__dirname, "../web/js/defaults.js"), "utf8"), ctx);
+  const d = ctx.window.ARKE_DEFAULTS;
+  assert.equal(d.clientId, "d2a6ccbd-3981-4e5f-a07c-83a277f978f8");
+  assert.equal(d.tenantId, "e7f5c109-53a0-45fc-8779-4c9d83a4572a");
+  assert.deepEqual(Core.validateConfig(Core.mergeConfig(d, undefined)), []);
+});
+
+test("mergeConfig: override wint, lege waarden niet", () => {
+  const m = Core.mergeConfig({ a: 1, b: "x", c: ["s"] }, { a: 2, b: "", c: ["t"], d: null });
+  assert.deepEqual(m, { a: 2, b: "x", c: ["t"] });
+  assert.deepEqual(Core.mergeConfig({ a: 1 }, undefined), { a: 1 });
+});
+
+test("parseSiteUrl", () => {
+  assert.deepEqual(Core.parseSiteUrl("https://kvtnl.sharepoint.com/sites/BCDocumentRepository/Customer"),
+    { host: "kvtnl.sharepoint.com", segments: ["sites", "BCDocumentRepository", "Customer"] });
+  assert.deepEqual(Core.parseSiteUrl("https://KVTNL.sharepoint.com/sites/A/Customer/Forms/AllItems.aspx?x=1").segments, ["sites", "A", "Customer"]);
+  assert.deepEqual(Core.parseSiteUrl("https://kvtnl.sharepoint.com/sites/Mijn%20Site/").segments, ["sites", "Mijn Site"]);
+  assert.equal(Core.parseSiteUrl("https://kvtnl.sharepoint.com/"), null);
+  assert.equal(Core.parseSiteUrl("https://evil.example.com/sites/A"), null);
+  assert.equal(Core.parseSiteUrl("http://kvtnl.sharepoint.com/sites/A"), null);
+});
+
+test("siteCandidates: eerst bibliotheek, dan subsite", () => {
+  const c = Core.siteCandidates("https://kvtnl.sharepoint.com/sites/BCDocumentRepository/Customer");
+  assert.deepEqual(c.map((x) => [x.sitePath, x.library, x.kind]), [
+    ["kvtnl.sharepoint.com:/sites/BCDocumentRepository", "Customer", "library"],
+    ["kvtnl.sharepoint.com:/sites/BCDocumentRepository/Customer", null, "subsite"]
+  ]);
+  const withLib = Core.siteCandidates("https://kvtnl.sharepoint.com/sites/A/B", "Klantmail");
+  assert.equal(withLib[0].library, "Klantmail");
+  assert.equal(withLib[1].library, "Klantmail");
+  const top = Core.siteCandidates("https://kvtnl.sharepoint.com/sites/A");
+  assert.deepEqual(top.map((x) => [x.sitePath, x.library, x.kind]), [["kvtnl.sharepoint.com:/sites/A", null, "site"]]);
+});
+
+test("pickDrive: op naam of op webUrl", () => {
+  const drives = [
+    { id: "1", name: "Documenten", webUrl: "https://kvtnl.sharepoint.com/sites/A/Gedeelde%20documenten" },
+    { id: "2", name: "Klanten", webUrl: "https://kvtnl.sharepoint.com/sites/A/Customer" },
+    { id: "3", name: "customer", webUrl: "https://kvtnl.sharepoint.com/sites/A/Other" }
+  ];
+  assert.equal(Core.pickDrive(drives, "Customer").id, "3"); // naam gaat voor
+  assert.equal(Core.pickDrive(drives.slice(0, 2), "Customer").id, "2"); // anders webUrl
+  assert.equal(Core.pickDrive(drives, "Gedeelde documenten").id, "1");
+  assert.equal(Core.pickDrive(drives, "Bestaat-niet"), null);
+  assert.equal(Core.pickDrive(drives, null), null);
+});
+
+test("targetCacheKey wisselt mee met siteUrl en bibliotheek", () => {
+  const a = Core.targetCacheKey({ siteUrl: "https://kvtnl.sharepoint.com/sites/A/B/" });
+  assert.equal(a, Core.targetCacheKey({ siteUrl: "https://KVTNL.sharepoint.com/sites/A/B" }));
+  assert.notEqual(a, Core.targetCacheKey({ siteUrl: "https://kvtnl.sharepoint.com/sites/A/B", libraryName: "X" }));
+});
+
+test("foldersToEnsure: tussenmappen eerst, geen dubbelen", () => {
+  assert.deepEqual(Core.foldersToEnsure({ inboxFolder: "_Inbox", registerFolder: "_Register" }), ["_Inbox", "_Register"]);
+  assert.deepEqual(Core.foldersToEnsure({ inboxFolder: "Klantmail/_Inbox", registerFolder: "Klantmail/_Register" }),
+    ["Klantmail", "Klantmail/_Inbox", "Klantmail/_Register"]);
+  assert.deepEqual(Core.foldersToEnsure({ inboxFolder: "_Inbox", registerFolder: "" }), ["_Inbox"]);
 });
