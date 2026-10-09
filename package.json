@@ -1,0 +1,11 @@
+{
+  "name": "arke",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Outlook-add-in: geopende mail handmatig opslaan als .eml in SharePoint",
+  "scripts": {
+    "test": "node --test tests/",
+    "manifest": "node tools/build-manifest.mjs --host"
+  },
+  "engines": { "node": ">=20" }
+}

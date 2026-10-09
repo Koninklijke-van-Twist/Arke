@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Arke - Outlook add-in-only manifest (XML) voor centrale uitrol via het
+  Microsoft 365-beheercentrum > Instellingen > Geïntegreerde apps.
+  Placeholders:  {{HOST_URL}}  bv. https://sleutels.kvt.nl/arke   (zonder / aan het eind)
+  Genereer de definitieve versie met: npm run manifest (zie README)
+-->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
+           xsi:type="MailApp">
+  <Id>e3d94c8f-153a-4556-819c-29f810c500fb</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Koninklijke van Twist</ProviderName>
+  <DefaultLocale>nl-NL</DefaultLocale>
+  <DisplayName DefaultValue="Arke - Opslaan in SharePoint"/>
+  <Description DefaultValue="Slaat de geopende mail handmatig op als .eml in de klantmail-map in SharePoint."/>
+  <IconUrl DefaultValue="{{HOST_URL}}/assets/icon-64.png"/>
+  <HighResolutionIconUrl DefaultValue="{{HOST_URL}}/assets/icon-128.png"/>
+  <SupportUrl DefaultValue="https://github.com/Koninklijke-van-Twist/Arke"/>
+  <AppDomains>
+    <AppDomain>{{HOST_ORIGIN}}</AppDomain>
+    <AppDomain>https://login.microsoftonline.com</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Mailbox"/>
+  </Hosts>
+  <Requirements>
+    <Sets>
+      <Set Name="Mailbox" MinVersion="1.1"/>
+    </Sets>
+  </Requirements>
+  <FormSettings>
+    <Form xsi:type="ItemRead">
+      <DesktopSettings>
+        <SourceLocation DefaultValue="{{HOST_URL}}/taskpane.html"/>
+        <RequestedHeight>450</RequestedHeight>
+      </DesktopSettings>
+    </Form>
+  </FormSettings>
+  <!-- ReadItem: genoeg voor item.getAsFileAsync en de metadata van de open mail. -->
+  <Permissions>ReadItem</Permissions>
+  <Rule xsi:type="RuleCollection" Mode="Or">
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read"/>
+  </Rule>
+  <DisableEntityHighlighting>false</DisableEntityHighlighting>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides/1.1" xsi:type="VersionOverridesV1_1">
+      <Requirements>
+        <bt:Sets DefaultMinVersion="1.5">
+          <bt:Set Name="Mailbox"/>
+        </bt:Sets>
+      </Requirements>
+      <Hosts>
+        <Host xsi:type="MailHost">
+          <DesktopFormFactor>
+            <ExtensionPoint xsi:type="MessageReadCommandSurface">
+              <OfficeTab id="TabDefault">
+                <Group id="arke.group">
+                  <Label resid="arke.group.label"/>
+                  <Control xsi:type="Button" id="arke.saveButton">
+                    <Label resid="arke.button.label"/>
+                    <Supertip>
+                      <Title resid="arke.button.label"/>
+                      <Description resid="arke.button.tooltip"/>
+                    </Supertip>
+                    <Icon>
+                      <bt:Image size="16" resid="arke.icon16"/>
+                      <bt:Image size="32" resid="arke.icon32"/>
+                      <bt:Image size="80" resid="arke.icon80"/>
+                    </Icon>
+                    <Action xsi:type="ShowTaskpane">
+                      <SourceLocation resid="arke.taskpane.url"/>
+                      <SupportsPinning>true</SupportsPinning>
+                    </Action>
+                  </Control>
+                </Group>
+              </OfficeTab>
+            </ExtensionPoint>
+          </DesktopFormFactor>
+        </Host>
+      </Hosts>
+      <Resources>
+        <bt:Images>
+          <bt:Image id="arke.icon16" DefaultValue="{{HOST_URL}}/assets/icon-16.png"/>
+          <bt:Image id="arke.icon32" DefaultValue="{{HOST_URL}}/assets/icon-32.png"/>
+          <bt:Image id="arke.icon80" DefaultValue="{{HOST_URL}}/assets/icon-80.png"/>
+        </bt:Images>
+        <bt:Urls>
+          <bt:Url id="arke.taskpane.url" DefaultValue="{{HOST_URL}}/taskpane.html"/>
+        </bt:Urls>
+        <bt:ShortStrings>
+          <bt:String id="arke.group.label" DefaultValue="Klantmail"/>
+          <bt:String id="arke.button.label" DefaultValue="Opslaan in SharePoint"/>
+        </bt:ShortStrings>
+        <bt:LongStrings>
+          <bt:String id="arke.button.tooltip" DefaultValue="Sla deze mail handmatig op als .eml in de klantmail-map in SharePoint."/>
+        </bt:LongStrings>
+      </Resources>
+    </VersionOverrides>
+  </VersionOverrides>
+</OfficeApp>
